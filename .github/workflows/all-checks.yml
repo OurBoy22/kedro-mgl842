@@ -26,6 +26,9 @@ permissions:
 
 jobs:
   unit-tests:
+    permissions:
+      contents: read
+      actions: write
     strategy:
       matrix:
         os: [ windows-latest, ubuntu-latest ]
@@ -36,6 +39,9 @@ jobs:
       python-version: ${{ matrix.python-version }}
       branch: ${{ inputs.branch }}
   e2e-tests:
+    permissions:
+      contents: read
+      actions: write
     strategy:
       matrix:
         os: [ windows-latest, ubuntu-latest ]
@@ -69,6 +75,9 @@ jobs:
       branch: ${{ inputs.branch }}
 
   security-check:
+    permissions:
+      contents: read
+      actions: write
     strategy:
       matrix:
         os: [ ubuntu-latest ]
