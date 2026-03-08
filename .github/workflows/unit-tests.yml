@@ -15,6 +15,7 @@ jobs:
   unit-tests:
     permissions:
       contents: read
+      actions: write
     runs-on: ${{ inputs.os }}
     timeout-minutes: 56 # equal to max + 3*std over the last ~1000 successful runs
     steps:
@@ -35,4 +36,56 @@ jobs:
       - name: pip freeze
         run: uv pip freeze
       - name: Run unit tests
-        run: make test
+        id: run-unit-tests
+        run: |
+          mkdir -p reports
+          pytest --numprocesses 4 --dist loadfile --junitxml=reports/unit-tests.xml
+      - name: Build unit test summary
+        id: unit-summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("reports/unit-tests.xml")
+          tests = failures = errors = skipped = 0
+          if report.exists():
+              root = ET.parse(report).getroot()
+              suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+              tests = sum(int(s.attrib.get("tests", 0)) for s in suites)
+              failures = sum(int(s.attrib.get("failures", 0)) for s in suites)
+              errors = sum(int(s.attrib.get("errors", 0)) for s in suites)
+              skipped = sum(int(s.attrib.get("skipped", 0)) for s in suites)
+
+          passed = max(tests - failures - errors - skipped, 0)
+          summary = {
+              "check": "unit-tests",
+              "os": os.environ["INPUT_OS"],
+              "python_version": os.environ["INPUT_PYTHON_VERSION"],
+              "tests": tests,
+              "passed": passed,
+              "failures": failures,
+              "errors": errors,
+              "skipped": skipped,
+              "status": os.environ["UNIT_TEST_STEP_OUTCOME"],
+          }
+
+          Path("reports").mkdir(parents=True, exist_ok=True)
+          with Path("reports/unit-summary.json").open("w", encoding="utf-8") as f:
+              json.dump(summary, f)
+          PY
+        env:
+          INPUT_OS: ${{ inputs.os }}
+          INPUT_PYTHON_VERSION: ${{ inputs.python-version }}
+          UNIT_TEST_STEP_OUTCOME: ${{ steps.run-unit-tests.outcome }}
+      - name: Upload unit summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-summary-${{ inputs.os }}-py${{ inputs.python-version }}
+          path: reports/unit-summary.json
+          if-no-files-found: error

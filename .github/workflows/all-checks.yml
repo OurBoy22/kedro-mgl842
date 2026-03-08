@@ -78,3 +78,113 @@ jobs:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       branch: ${{ inputs.branch }}
+
+  report:
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests
+      - e2e-tests
+      - lint
+      - detect-secrets
+      - security-check
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download summary artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+          pattern: "*-summary-*"
+      - name: Build consolidated report
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          unit_files = sorted(Path("artifacts").glob("unit-summary-*/unit-summary.json"))
+          e2e_files = sorted(Path("artifacts").glob("e2e-summary-*/e2e-summary.json"))
+          security_files = sorted(Path("artifacts").glob("security-summary-*/security-summary.json"))
+
+          def load_many(paths):
+              items = []
+              for p in paths:
+                  try:
+                      items.append(json.loads(p.read_text(encoding="utf-8")))
+                  except Exception:
+                      continue
+              return items
+
+          unit = load_many(unit_files)
+          e2e = load_many(e2e_files)
+          security = load_many(security_files)
+
+          def sum_field(rows, key):
+              return sum(int(r.get(key, 0)) for r in rows)
+
+          unit_total = sum_field(unit, "tests")
+          unit_passed = sum_field(unit, "passed")
+          unit_failed = sum_field(unit, "failures")
+          unit_errors = sum_field(unit, "errors")
+          unit_skipped = sum_field(unit, "skipped")
+
+          e2e_total = sum_field(e2e, "tests")
+          e2e_passed = sum_field(e2e, "passed")
+          e2e_failed = sum_field(e2e, "failures")
+          e2e_errors = sum_field(e2e, "errors")
+          e2e_skipped = sum_field(e2e, "skipped")
+
+          pip_audit_vulns = sum(int(r.get("pip_audit_vulnerabilities", 0)) for r in security if int(r.get("pip_audit_vulnerabilities", 0)) > 0)
+          safety_vulns = sum(int(r.get("safety_vulnerabilities", 0)) for r in security if int(r.get("safety_vulnerabilities", 0)) > 0)
+
+          needs = {
+              "Unit tests job": "${{ needs.unit-tests.result }}",
+              "E2E tests job": "${{ needs.e2e-tests.result }}",
+              "Lint job": "${{ needs.lint.result }}",
+              "Detect secrets job": "${{ needs.detect-secrets.result }}",
+              "Security check job": "${{ needs.security-check.result }}",
+          }
+
+          lines = []
+          lines.append("## CI Report")
+          lines.append("")
+          lines.append("### Job status")
+          lines.append("| Check | Result |")
+          lines.append("|---|---|")
+          for name, status in needs.items():
+              lines.append(f"| {name} | {status} |")
+
+          lines.append("")
+          lines.append("### Unit test counts (all matrix runs)")
+          lines.append("| Total | Passed | Failed | Errors | Skipped |")
+          lines.append("|---:|---:|---:|---:|---:|")
+          lines.append(f"| {unit_total} | {unit_passed} | {unit_failed} | {unit_errors} | {unit_skipped} |")
+
+          lines.append("")
+          lines.append("### E2E test counts (all matrix runs)")
+          lines.append("| Total | Passed | Failed | Errors | Skipped |")
+          lines.append("|---:|---:|---:|---:|---:|")
+          lines.append(f"| {e2e_total} | {e2e_passed} | {e2e_failed} | {e2e_errors} | {e2e_skipped} |")
+
+          lines.append("")
+          lines.append("### Security findings")
+          lines.append("| Scanner | Vulnerabilities |")
+          lines.append("|---|---:|")
+          lines.append(f"| pip-audit | {pip_audit_vulns} |")
+          lines.append(f"| safety | {safety_vulns} |")
+
+          report = "\n".join(lines) + "\n"
+          Path("ci-report.md").write_text(report, encoding="utf-8")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as f:
+              f.write(report)
+          PY
+      - name: Post sticky PR comment
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: ci-report
+          path: ci-report.md
