@@ -1,4 +1,4 @@
-"""This module provides user-friendly functions for creating nodes as parts
+"""This module provides user-friendly functions for creating nodes as part
 of Kedro pipelines.
 """
 
