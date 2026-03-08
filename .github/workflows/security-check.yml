@@ -1,0 +1,40 @@
+name: Run security checks on Kedro
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+      python-version:
+        type: string
+      branch:
+        type: string
+        default: ''
+
+jobs:
+  security-check:
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch }}
+      - name: Install the latest version of uv with Python ${{inputs.python-version}}
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          python-version: ${{ inputs.python-version }}
+          activate-environment: true
+      - name: Install dependencies
+        run: |
+          make install-test-requirements
+          make install-pre-commit
+          uv pip install pip-audit safety
+      - name: pip freeze
+        run: uv pip freeze
+      - name: Audit dependencies with pip-audit
+        run: pip-audit
+      - name: Audit dependencies with safety
+        run: safety check --full-report

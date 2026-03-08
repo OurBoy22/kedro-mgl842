@@ -67,3 +67,14 @@ jobs:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       branch: ${{ inputs.branch }}
+
+  security-check:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+        python-version: [ "3.11" ]
+    uses: ./.github/workflows/security-check.yml
+    with:
+      os: ${{ matrix.os }}
+      python-version: ${{ matrix.python-version }}
+      branch: ${{ inputs.branch }}
