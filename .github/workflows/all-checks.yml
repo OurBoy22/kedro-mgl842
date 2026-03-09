@@ -135,6 +135,24 @@ jobs:
           def sum_field(rows, key):
               return sum(int(r.get(key, 0)) for r in rows)
 
+            def sort_rows(rows):
+              return sorted(rows, key=lambda r: (str(r.get("os", "")), str(r.get("python_version", ""))))
+
+            def add_test_detail_table(lines, title, rows):
+              lines.append("")
+              lines.append(title)
+              lines.append("| OS | Python | Status | Total | Passed | Failed | Errors | Skipped |")
+              lines.append("|---|---|---|---:|---:|---:|---:|---:|")
+              if not rows:
+                lines.append("| n/a | n/a | n/a | 0 | 0 | 0 | 0 | 0 |")
+                return
+              for row in sort_rows(rows):
+                lines.append(
+                  f"| {row.get('os', 'n/a')} | {row.get('python_version', 'n/a')} | {row.get('status', 'n/a')} "
+                  f"| {int(row.get('tests', 0))} | {int(row.get('passed', 0))} | {int(row.get('failures', 0))} "
+                  f"| {int(row.get('errors', 0))} | {int(row.get('skipped', 0))} |"
+                )
+
           unit_total = sum_field(unit, "tests")
           unit_passed = sum_field(unit, "passed")
           unit_failed = sum_field(unit, "failures")
@@ -172,12 +190,14 @@ jobs:
           lines.append("| Total | Passed | Failed | Errors | Skipped |")
           lines.append("|---:|---:|---:|---:|---:|")
           lines.append(f"| {unit_total} | {unit_passed} | {unit_failed} | {unit_errors} | {unit_skipped} |")
+          add_test_detail_table(lines, "### Unit test details (per OS/Python)", unit)
 
           lines.append("")
           lines.append("### E2E test counts (all matrix runs)")
           lines.append("| Total | Passed | Failed | Errors | Skipped |")
           lines.append("|---:|---:|---:|---:|---:|")
           lines.append(f"| {e2e_total} | {e2e_passed} | {e2e_failed} | {e2e_errors} | {e2e_skipped} |")
+          add_test_detail_table(lines, "### E2E test details (per OS/Python)", e2e)
 
           lines.append("")
           lines.append("### Security findings")
