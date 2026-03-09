@@ -108,109 +108,13 @@ jobs:
           path: artifacts
           pattern: "*-summary-*"
       - name: Build consolidated report
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          unit_files = sorted(Path("artifacts").glob("unit-summary-*/unit-summary.json"))
-          e2e_files = sorted(Path("artifacts").glob("e2e-summary-*/e2e-summary.json"))
-          security_files = sorted(Path("artifacts").glob("security-summary-*/security-summary.json"))
-
-          def load_many(paths):
-              items = []
-              for p in paths:
-                  try:
-                      items.append(json.loads(p.read_text(encoding="utf-8")))
-                  except Exception:
-                      continue
-              return items
-
-          unit = load_many(unit_files)
-          e2e = load_many(e2e_files)
-          security = load_many(security_files)
-
-          def sum_field(rows, key):
-              return sum(int(r.get(key, 0)) for r in rows)
-
-            def sort_rows(rows):
-              return sorted(rows, key=lambda r: (str(r.get("os", "")), str(r.get("python_version", ""))))
-
-            def add_test_detail_table(lines, title, rows):
-              lines.append("")
-              lines.append(title)
-              lines.append("| OS | Python | Status | Total | Passed | Failed | Errors | Skipped |")
-              lines.append("|---|---|---|---:|---:|---:|---:|---:|")
-              if not rows:
-                lines.append("| n/a | n/a | n/a | 0 | 0 | 0 | 0 | 0 |")
-                return
-              for row in sort_rows(rows):
-                lines.append(
-                  f"| {row.get('os', 'n/a')} | {row.get('python_version', 'n/a')} | {row.get('status', 'n/a')} "
-                  f"| {int(row.get('tests', 0))} | {int(row.get('passed', 0))} | {int(row.get('failures', 0))} "
-                  f"| {int(row.get('errors', 0))} | {int(row.get('skipped', 0))} |"
-                )
-
-          unit_total = sum_field(unit, "tests")
-          unit_passed = sum_field(unit, "passed")
-          unit_failed = sum_field(unit, "failures")
-          unit_errors = sum_field(unit, "errors")
-          unit_skipped = sum_field(unit, "skipped")
-
-          e2e_total = sum_field(e2e, "tests")
-          e2e_passed = sum_field(e2e, "passed")
-          e2e_failed = sum_field(e2e, "failures")
-          e2e_errors = sum_field(e2e, "errors")
-          e2e_skipped = sum_field(e2e, "skipped")
-
-          pip_audit_vulns = sum(int(r.get("pip_audit_vulnerabilities", 0)) for r in security if int(r.get("pip_audit_vulnerabilities", 0)) > 0)
-          safety_vulns = sum(int(r.get("safety_vulnerabilities", 0)) for r in security if int(r.get("safety_vulnerabilities", 0)) > 0)
-
-          needs = {
-              "Unit tests job": "${{ needs.unit-tests.result }}",
-              "E2E tests job": "${{ needs.e2e-tests.result }}",
-              "Lint job": "${{ needs.lint.result }}",
-              "Detect secrets job": "${{ needs.detect-secrets.result }}",
-              "Security check job": "${{ needs.security-check.result }}",
-          }
-
-          lines = []
-          lines.append("## CI Report")
-          lines.append("")
-          lines.append("### Job status")
-          lines.append("| Check | Result |")
-          lines.append("|---|---|")
-          for name, status in needs.items():
-              lines.append(f"| {name} | {status} |")
-
-          lines.append("")
-          lines.append("### Unit test counts (all matrix runs)")
-          lines.append("| Total | Passed | Failed | Errors | Skipped |")
-          lines.append("|---:|---:|---:|---:|---:|")
-          lines.append(f"| {unit_total} | {unit_passed} | {unit_failed} | {unit_errors} | {unit_skipped} |")
-          add_test_detail_table(lines, "### Unit test details (per OS/Python)", unit)
-
-          lines.append("")
-          lines.append("### E2E test counts (all matrix runs)")
-          lines.append("| Total | Passed | Failed | Errors | Skipped |")
-          lines.append("|---:|---:|---:|---:|---:|")
-          lines.append(f"| {e2e_total} | {e2e_passed} | {e2e_failed} | {e2e_errors} | {e2e_skipped} |")
-          add_test_detail_table(lines, "### E2E test details (per OS/Python)", e2e)
-
-          lines.append("")
-          lines.append("### Security findings")
-          lines.append("| Scanner | Vulnerabilities |")
-          lines.append("|---|---:|")
-          lines.append(f"| pip-audit | {pip_audit_vulns} |")
-          lines.append(f"| safety | {safety_vulns} |")
-
-          report = "\n".join(lines) + "\n"
-          Path("ci-report.md").write_text(report, encoding="utf-8")
-          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as f:
-              f.write(report)
-          PY
+        run: python tools/github_actions/generate_ci_report.py
+        env:
+          UNIT_TESTS_JOB_RESULT: ${{ needs.unit-tests.result }}
+          E2E_TESTS_JOB_RESULT: ${{ needs.e2e-tests.result }}
+          LINT_JOB_RESULT: ${{ needs.lint.result }}
+          DETECT_SECRETS_JOB_RESULT: ${{ needs.detect-secrets.result }}
+          SECURITY_CHECK_JOB_RESULT: ${{ needs.security-check.result }}
       - name: Post sticky PR comment
         if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
