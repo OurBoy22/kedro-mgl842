@@ -16,10 +16,7 @@ def _to_int(value: Any, default: int = 0) -> int:
 def _load_many(paths: list[Path]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for path in paths:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             items.append(data)
     return items
