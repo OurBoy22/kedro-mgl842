@@ -19,6 +19,7 @@ jobs:
   e2e-tests:
     permissions:
       contents: read
+      actions: write
     runs-on: ${{ inputs.os }}
     steps:
       - name: Checkout code
@@ -39,4 +40,57 @@ jobs:
       - name: pip freeze
         run: pip freeze
       - name: Run e2e tests
-        run: make e2e-tests
+        id: run-e2e-tests
+        run: |
+          mkdir -p reports/behave
+          behave --tags=-skip --junit --junit-directory reports/behave
+      - name: Build e2e test summary
+        id: e2e-summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          xml_files = list(Path("reports/behave").glob("*.xml"))
+          tests = failures = errors = skipped = 0
+
+          for report in xml_files:
+              root = ET.parse(report).getroot()
+              suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+              tests += sum(int(s.attrib.get("tests", 0)) for s in suites)
+              failures += sum(int(s.attrib.get("failures", 0)) for s in suites)
+              errors += sum(int(s.attrib.get("errors", 0)) for s in suites)
+              skipped += sum(int(s.attrib.get("skipped", 0)) for s in suites)
+
+          passed = max(tests - failures - errors - skipped, 0)
+          summary = {
+              "check": "e2e-tests",
+              "os": os.environ["INPUT_OS"],
+              "python_version": os.environ["INPUT_PYTHON_VERSION"],
+              "tests": tests,
+              "passed": passed,
+              "failures": failures,
+              "errors": errors,
+              "skipped": skipped,
+              "status": os.environ["E2E_TEST_STEP_OUTCOME"],
+          }
+
+          Path("reports").mkdir(parents=True, exist_ok=True)
+          with Path("reports/e2e-summary.json").open("w", encoding="utf-8") as f:
+              json.dump(summary, f)
+          PY
+        env:
+          INPUT_OS: ${{ inputs.os }}
+          INPUT_PYTHON_VERSION: ${{ inputs.python-version }}
+          E2E_TEST_STEP_OUTCOME: ${{ steps.run-e2e-tests.outcome }}
+      - name: Upload e2e summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-summary-${{ inputs.os }}-py${{ inputs.python-version }}
+          path: reports/e2e-summary.json
+          if-no-files-found: error

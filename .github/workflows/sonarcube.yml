@@ -3,17 +3,32 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
     types: [opened, synchronize, reopened]
 jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis as suggested by docs
+      - name: Install the latest version of uv with Python 3.11
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          python-version: "3.11"
+          activate-environment: true
+      - name: Install test dependencies
+        run: make install-test-requirements
+      - name: Run tests with coverage report
+        run: pytest --numprocesses 4 --dist loadfile
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@9598b8a83feef37de07f549027fab50ecffe6a6e
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

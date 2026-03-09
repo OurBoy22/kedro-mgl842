@@ -15,6 +15,7 @@ jobs:
   security-check:
     permissions:
       contents: read
+      actions: write
     runs-on: ${{ inputs.os }}
     steps:
       - name: Checkout code
@@ -35,6 +36,92 @@ jobs:
       - name: pip freeze
         run: uv pip freeze
       - name: Audit dependencies with pip-audit
-        run: pip-audit
+        id: run-pip-audit
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          pip-audit -f json -o reports/pip-audit.json
       - name: Audit dependencies with safety
-        run: safety check --full-report
+        id: run-safety
+        continue-on-error: true
+        run: safety check --json > reports/safety.json
+      - name: Build security summary
+        id: security-summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          pip_audit_path = Path("reports/pip-audit.json")
+          safety_path = Path("reports/safety.json")
+
+          pip_audit_vulns = 0
+          safety_vulns = 0
+
+          if pip_audit_path.exists():
+              try:
+                  data = json.loads(pip_audit_path.read_text(encoding="utf-8"))
+                  dependencies = data.get("dependencies", []) if isinstance(data, dict) else []
+                  pip_audit_vulns = sum(len(dep.get("vulns", [])) for dep in dependencies if isinstance(dep, dict))
+              except Exception:
+                  pip_audit_vulns = -1
+          else:
+              pip_audit_vulns = -1
+
+          if safety_path.exists():
+              try:
+                  data = json.loads(safety_path.read_text(encoding="utf-8"))
+                  if isinstance(data, list):
+                      safety_vulns = len(data)
+                  elif isinstance(data, dict):
+                      safety_vulns = len(data.get("vulnerabilities", []))
+                  else:
+                      safety_vulns = -1
+              except Exception:
+                  safety_vulns = -1
+          else:
+              safety_vulns = -1
+
+          has_vulns = any(v > 0 for v in [pip_audit_vulns, safety_vulns])
+          scanner_error = any(v < 0 for v in [pip_audit_vulns, safety_vulns])
+
+          summary = {
+              "check": "security-check",
+              "os": os.environ["INPUT_OS"],
+              "python_version": os.environ["INPUT_PYTHON_VERSION"],
+              "pip_audit_vulnerabilities": pip_audit_vulns,
+              "safety_vulnerabilities": safety_vulns,
+              "pip_audit_status": os.environ["PIP_AUDIT_STEP_OUTCOME"],
+              "safety_status": os.environ["SAFETY_STEP_OUTCOME"],
+              "status": "failure" if has_vulns or scanner_error else "success",
+          }
+
+          Path("reports").mkdir(parents=True, exist_ok=True)
+          with Path("reports/security-summary.json").open("w", encoding="utf-8") as f:
+              json.dump(summary, f)
+
+          out = Path(os.environ["GITHUB_OUTPUT"])
+          with out.open("a", encoding="utf-8") as f:
+              f.write(f"has_vulns={'true' if has_vulns else 'false'}\\n")
+              f.write(f"scanner_error={'true' if scanner_error else 'false'}\\n")
+          PY
+        env:
+          INPUT_OS: ${{ inputs.os }}
+          INPUT_PYTHON_VERSION: ${{ inputs.python-version }}
+          PIP_AUDIT_STEP_OUTCOME: ${{ steps.run-pip-audit.outcome }}
+          SAFETY_STEP_OUTCOME: ${{ steps.run-safety.outcome }}
+      - name: Upload security summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary-${{ inputs.os }}-py${{ inputs.python-version }}
+          path: reports/security-summary.json
+          if-no-files-found: error
+      - name: Fail on security findings
+        if: steps.security-summary.outputs.has_vulns == 'true' || steps.security-summary.outputs.scanner_error == 'true'
+        run: |
+          echo "Security vulnerabilities found (or scanner parsing failed)."
+          exit 1
