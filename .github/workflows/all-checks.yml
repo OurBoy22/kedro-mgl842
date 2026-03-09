@@ -32,7 +32,9 @@ jobs:
     strategy:
       matrix:
         os: [ windows-latest, ubuntu-latest ]
-        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        # Temporary: single Python version while validating CI report pipeline.
+        # python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.11" ]
     uses: ./.github/workflows/unit-tests.yml
     with:
       os: ${{ matrix.os }}
@@ -45,7 +47,9 @@ jobs:
     strategy:
       matrix:
         os: [ windows-latest, ubuntu-latest ]
-        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        # Temporary: single Python version while validating CI report pipeline.
+        # python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.11" ]
     uses: ./.github/workflows/e2e-tests.yml
     with:
       os: ${{ matrix.os }}
@@ -102,6 +106,10 @@ jobs:
       actions: read
       pull-requests: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.branch }}
       - name: Download summary artifacts
         uses: actions/download-artifact@v5
         with:
