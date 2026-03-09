@@ -11,11 +11,19 @@ permissions:
 
 jobs:
   kedro-main-test:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
     uses: ./.github/workflows/all-checks.yml
     with:
       branch: main
 
   kedro-develop-test:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
     uses: ./.github/workflows/all-checks.yml
     with:
       branch: develop

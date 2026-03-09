@@ -37,6 +37,10 @@ jobs:
   test-kedro:
     needs: check-version
     if: ${{ needs.check-version.outputs.new_release == 'true' }}
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
     uses: ./.github/workflows/all-checks.yml
 
   build-publish:
